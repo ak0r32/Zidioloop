@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+*.log
+npm-debug.log*
+.env
+.env.local
+.env.*
+!.env.example
+coverage
+prisma/migrations
+.DS_Store
