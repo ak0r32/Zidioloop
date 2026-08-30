@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 
@@ -33,6 +33,7 @@ function FeedbackInbox() {
   const { data: session } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [total, setTotal] = useState(0);
@@ -43,37 +44,39 @@ function FeedbackInbox() {
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "");
   const [channelFilter, setChannelFilter] = useState(searchParams.get("channel") || "");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
 
   const isAdmin = session?.user.role === "ADMIN";
   const isAnalyst = session?.user.role === "ANALYST";
 
+  const fetchFeedback = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        pageSize: pageSize.toString(),
+      });
+
+      if (search) params.append("search", search);
+      if (statusFilter) params.append("status", statusFilter);
+      if (channelFilter) params.append("channel", channelFilter);
+
+      const response = await fetch(`/api/feedback?${params}`);
+      const data: FeedbackResponse = await response.json();
+
+      setFeedback(data.items || []);
+      setTotal(data.total || 0);
+    } catch (error) {
+      console.error("Error fetching feedback:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [channelFilter, page, pageSize, search, statusFilter]);
+
   useEffect(() => {
-    const fetchFeedback = async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          pageSize: pageSize.toString(),
-        });
-
-        if (search) params.append("search", search);
-        if (statusFilter) params.append("status", statusFilter);
-        if (channelFilter) params.append("channel", channelFilter);
-
-        const response = await fetch(`/api/feedback?${params}`);
-        const data: FeedbackResponse = await response.json();
-
-        setFeedback(data.items || []);
-        setTotal(data.total || 0);
-      } catch (error) {
-        console.error("Error fetching feedback:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchFeedback();
-  }, [page, search, statusFilter, channelFilter, pageSize]);
+  }, [fetchFeedback]);
 
   const handleStatusChange = async (feedbackId: string, newStatus: string) => {
     setUpdatingId(feedbackId);
@@ -108,6 +111,41 @@ function FeedbackInbox() {
     router.push(`/feedback?${params}`);
   };
 
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setIsImporting(true);
+    setImportMessage("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/feedback/import", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Import failed");
+      }
+
+      setImportMessage(data.message || "CSV imported successfully.");
+      await fetchFeedback();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import CSV file";
+      setImportMessage(message);
+    } finally {
+      setIsImporting(false);
+      event.target.value = "";
+    }
+  };
+
   const totalPages = Math.ceil(total / pageSize);
   const channels = ["Email", "Chat", "Support", "Twitter", "NPS Survey", "App Store", "ProductHunt"];
   const statuses = ["NEW", "REVIEWED", "ACTIONED"];
@@ -124,12 +162,32 @@ function FeedbackInbox() {
               <p className="mt-1 text-sm text-slate-400">{total} total feedback items</p>
             </div>
             {(isAdmin || isAnalyst) && (
-              <button className="px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-500 transition flex items-center gap-2 w-fit">
-                ⬆️ Import CSV
-              </button>
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={handleImport}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isImporting}
+                  className="px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-500 transition flex items-center gap-2 w-fit disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isImporting ? "⏳ Importing..." : "⬆️ Import CSV"}
+                </button>
+              </>
             )}
           </div>
         </div>
+
+        {importMessage && (
+          <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-sm text-violet-200">
+            {importMessage}
+          </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-[1fr_300px]">
           {/* Main Inbox */}
@@ -300,7 +358,11 @@ function FeedbackInbox() {
             {(isAdmin || isAnalyst) && (
               <div className="card">
                 <h3 className="font-semibold text-white mb-3">Actions</h3>
-                <button className="w-full px-3 py-2 rounded-lg border border-violet-500/50 text-sm text-violet-300 hover:bg-violet-500/10 transition">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full px-3 py-2 rounded-lg border border-violet-500/50 text-sm text-violet-300 hover:bg-violet-500/10 transition"
+                >
                   ➕ Add feedback
                 </button>
               </div>
