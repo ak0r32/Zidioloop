@@ -22,6 +22,7 @@ export function Navigation() {
     { href: "/trends", label: "Trends", icon: "📈" },
     { href: "/ask-loop", label: "Ask LOOP", icon: "🤖" },
     { href: "/reports", label: "Reports", icon: "📄" },
+    ...(isAdmin ? [{ href: "/admin/tickets", label: "Tickets", icon: "🎫" }] : []),
     ...(isAdmin || isAnalyst ? [{ href: "/settings", label: "Settings", icon: "⚙️" }] : []),
   ];
 

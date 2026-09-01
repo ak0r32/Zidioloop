@@ -25,6 +25,7 @@ export const feedbackUpdateSchema = z.object({
   sourceRef: z.string().optional().nullable(),
   customerLabel: z.string().optional().nullable(),
   status: z.enum(["NEW", "REVIEWED", "ACTIONED"]).optional(),
+  sentiment: z.enum(["POS", "NEG", "NEU"]).optional(),
 });
 
 export const memberRoleSchema = z.object({
