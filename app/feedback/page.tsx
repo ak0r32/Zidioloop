@@ -166,7 +166,7 @@ function FeedbackInbox() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,.json,.xlsx,.xls,text/csv,application/json"
                   className="hidden"
                   onChange={handleImport}
                 />
