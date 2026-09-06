@@ -3,6 +3,10 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { FeedbackFormModal, FeedbackFormData } from "@/components/feedback-form-modal";
+import { FilterBadge, Dropdown, DropdownItem, DropdownDivider } from "@/components/dropdown";
+import { Button, TextInput, Badge } from "@/components/form";
+import { FeedbackItem } from "@/components/dashboard";
 
 interface Feedback {
   id: string;
@@ -43,9 +47,12 @@ function FeedbackInbox() {
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "");
   const [channelFilter, setChannelFilter] = useState(searchParams.get("channel") || "");
+  const [sentimentFilter, setSentimentFilter] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isFormLoading, setIsFormLoading] = useState(false);
 
   const isAdmin = session?.user.role === "ADMIN";
   const isAnalyst = session?.user.role === "ANALYST";
@@ -61,6 +68,7 @@ function FeedbackInbox() {
       if (search) params.append("search", search);
       if (statusFilter) params.append("status", statusFilter);
       if (channelFilter) params.append("channel", channelFilter);
+      if (sentimentFilter) params.append("sentiment", sentimentFilter);
 
       const response = await fetch(`/api/feedback?${params}`);
       const data: FeedbackResponse = await response.json();
@@ -72,7 +80,7 @@ function FeedbackInbox() {
     } finally {
       setLoading(false);
     }
-  }, [channelFilter, page, pageSize, search, statusFilter]);
+  }, [channelFilter, page, pageSize, search, statusFilter, sentimentFilter]);
 
   useEffect(() => {
     fetchFeedback();
@@ -98,6 +106,29 @@ function FeedbackInbox() {
       console.error("Error updating feedback:", error);
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleFormSubmit = async (formData: FeedbackFormData) => {
+    setIsFormLoading(true);
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create feedback");
+      }
+
+      await fetchFeedback();
+      setIsFormOpen(false);
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsFormLoading(false);
     }
   };
 
@@ -146,244 +177,341 @@ function FeedbackInbox() {
     }
   };
 
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setChannelFilter("");
+    setSentimentFilter("");
+    setPage(1);
+  };
+
+  const hasFilters = search || statusFilter || channelFilter || sentimentFilter;
   const totalPages = Math.ceil(total / pageSize);
-  const channels = ["Email", "Chat", "Support", "Twitter", "NPS Survey", "App Store", "ProductHunt"];
+  const channels = ["email", "chat", "phone", "twitter", "review", "survey"];
   const statuses = ["NEW", "REVIEWED", "ACTIONED"];
+  const sentiments = ["POS", "NEU", "NEG"];
 
   return (
-    <main className="min-h-screen pb-20">
-      <div className="mx-auto max-w-7xl px-4 py-8">
+    <main className="min-h-screen pb-20 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+      <div className="mx-auto max-w-7xl px-4 py-12">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">Organize</p>
-              <h1 className="mt-2 text-4xl font-bold text-white">Feedback Inbox</h1>
-              <p className="mt-1 text-sm text-slate-400">{total} total feedback items</p>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-violet-400">Organize</p>
+              <h1 className="mt-2 text-5xl font-bold bg-gradient-to-r from-white via-white to-slate-300 bg-clip-text text-transparent">
+                Feedback Inbox
+              </h1>
+              <p className="mt-2 text-sm text-slate-400">
+                <span className="font-semibold text-slate-300">{total}</span> total items
+              </p>
             </div>
-            {(isAdmin || isAnalyst) && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,.json,.xlsx,.xls,text/csv,application/json"
-                  className="hidden"
-                  onChange={handleImport}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isImporting}
-                  className="px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-500 transition flex items-center gap-2 w-fit disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {isImporting ? "⏳ Importing..." : "⬆️ Import CSV"}
-                </button>
-              </>
-            )}
+            <div className="flex gap-3 flex-wrap">
+              {(isAdmin || isAnalyst) && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.json,.xlsx,.xls,text/csv,application/json"
+                    className="hidden"
+                    onChange={handleImport}
+                  />
+                  <Button
+                    variant="secondary"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImporting}
+                  >
+                    📥 {isImporting ? "Importing..." : "Import"}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setIsFormOpen(true)}
+                  >
+                    ➕ Add Feedback
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {importMessage && (
-          <div className="mb-4 rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-sm text-violet-200">
-            {importMessage}
+          <div className={`mb-6 rounded-xl px-4 py-3 text-sm border backdrop-blur-xl ${
+            importMessage.includes("success")
+              ? "bg-green-500/15 border-green-500/30 text-green-300"
+              : "bg-red-500/15 border-red-500/30 text-red-300"
+          }`}>
+            <div className="flex items-center gap-2">
+              <span>{importMessage.includes("success") ? "✓" : "⚠"}</span>
+              {importMessage}
+            </div>
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-[1fr_300px]">
-          {/* Main Inbox */}
-          <div className="space-y-4">
-            {/* Search Bar */}
-            <form onSubmit={handleSearch} className="card">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Search feedback..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-white placeholder-slate-500 outline-none focus:border-violet-500"
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-violet-600 text-white font-medium hover:bg-violet-500 transition"
-                >
-                  🔍
-                </button>
-              </div>
-            </form>
-
-            {/* Feedback List */}
-            <div className="card space-y-3">
-              {loading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="h-24 bg-slate-800 rounded-lg animate-pulse"></div>
-                  ))}
-                </div>
-              ) : feedback.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-slate-400 mb-2">No feedback found</p>
-                  <p className="text-sm text-slate-500">Try adjusting your filters or search query</p>
-                </div>
-              ) : (
-                <>
-                  {feedback.map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-lg border border-slate-800 bg-slate-950/60 p-4 hover:border-slate-700 transition"
-                    >
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <p className="text-sm text-slate-100 flex-1">{item.content}</p>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {item.sentiment && (
-                            <span
-                              className={`text-[10px] font-semibold px-2 py-1 rounded border ${
-                                item.sentiment === "POS"
-                                  ? "bg-green-500/10 text-green-300 border-green-500/30"
-                                  : item.sentiment === "NEG"
-                                    ? "bg-red-500/10 text-red-300 border-red-500/30"
-                                    : "bg-slate-500/10 text-slate-300 border-slate-500/30"
-                              }`}
-                            >
-                              {item.sentiment}
-                            </span>
-                          )}
-
-                          {(isAdmin || isAnalyst) && (
-                            <select
-                              value={item.status}
-                              onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                              disabled={updatingId === item.id}
-                              className={`text-[10px] font-semibold px-2 py-1 rounded border-none cursor-pointer ${
-                                item.status === "NEW"
-                                  ? "bg-blue-500/10 text-blue-300"
-                                  : item.status === "REVIEWED"
-                                    ? "bg-yellow-500/10 text-yellow-300"
-                                    : "bg-green-500/10 text-green-300"
-                              } disabled:opacity-50`}
-                            >
-                              <option value="NEW">NEW</option>
-                              <option value="REVIEWED">REVIEWED</option>
-                              <option value="ACTIONED">ACTIONED</option>
-                            </select>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block w-2 h-2 rounded-full bg-violet-400"></span>
-                          {item.channel}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {item.customerLabel && <span className="font-medium">{item.customerLabel}</span>}
-                          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
+        {/* Search and Filters */}
+        <div className="mb-6 space-y-4">
+          <form onSubmit={handleSearch} className="card">
+            <div className="flex gap-3 flex-col md:flex-row">
+              <TextInput
+                icon="🔍"
+                type="text"
+                placeholder="Search feedback by content, customer, channel..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1"
+              />
+              <Button variant="primary" type="submit" size="md">
+                Search
+              </Button>
             </div>
+          </form>
+
+          {/* Filter Chips */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-slate-400 font-medium">Filters:</span>
+            {statusFilter && (
+              <FilterBadge
+                label="Status"
+                value={statusFilter}
+                onRemove={() => setStatusFilter("")}
+              />
+            )}
+            {channelFilter && (
+              <FilterBadge
+                label="Channel"
+                value={channelFilter}
+                onRemove={() => setChannelFilter("")}
+              />
+            )}
+            {sentimentFilter && (
+              <FilterBadge
+                label="Sentiment"
+                value={sentimentFilter}
+                onRemove={() => setSentimentFilter("")}
+              />
+            )}
+            {hasFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="text-xs px-3 py-1 rounded-full bg-slate-800/50 text-slate-300 hover:bg-slate-700/50 transition-colors"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+          {/* Feedback List */}
+          <div className="space-y-4">
+            {loading ? (
+              <div className="space-y-3">
+                {[...Array(5)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="card h-20 bg-gradient-to-r from-slate-800 to-slate-900 animate-pulse"
+                  />
+                ))}
+              </div>
+            ) : feedback.length === 0 ? (
+              <div className="card py-16 text-center">
+                <div className="text-5xl mb-4">🔄</div>
+                <h3 className="text-xl font-bold text-white mb-2">No feedback found</h3>
+                <p className="text-slate-400">
+                  {hasFilters
+                    ? "Try adjusting your filters or search query"
+                    : "Start by adding or importing feedback"}
+                </p>
+              </div>
+            ) : (
+              <>
+                {feedback.map((item) => (
+                  <div key={item.id} className="group">
+                    <FeedbackItem
+                      content={item.content}
+                      channel={item.channel}
+                      customerLabel={item.customerLabel}
+                      status={item.status}
+                      date={new Date(item.createdAt).toLocaleDateString()}
+                      sentiment={item.sentiment}
+                    />
+                    {(isAdmin || isAnalyst) && (
+                      <div className="mt-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Dropdown
+                          trigger={
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={updatingId === item.id}
+                            >
+                              {updatingId === item.id ? "..." : "Update Status"} ▼
+                            </Button>
+                          }
+                        >
+                          {statuses.map((status) => (
+                            <DropdownItem
+                              key={status}
+                              label={status}
+                              onClick={() => handleStatusChange(item.id, status)}
+                            />
+                          ))}
+                        </Dropdown>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="card flex items-center justify-between">
-                <button
+              <div className="card flex items-center justify-center gap-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setPage(Math.max(1, page - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:border-violet-500 disabled:opacity-50"
                 >
                   ← Previous
-                </button>
-                <span className="text-sm text-slate-400">
-                  Page {page} of {totalPages}
+                </Button>
+                <span className="text-sm text-slate-300 font-medium">
+                  Page <span className="text-violet-300">{page}</span> of{" "}
+                  <span className="text-violet-300">{totalPages}</span>
                 </span>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setPage(Math.min(totalPages, page + 1))}
                   disabled={page === totalPages}
-                  className="px-3 py-1 rounded-lg border border-slate-700 text-sm text-slate-300 hover:border-violet-500 disabled:opacity-50"
                 >
                   Next →
-                </button>
+                </Button>
               </div>
             )}
           </div>
 
           {/* Sidebar Filters */}
           <div className="space-y-4">
+            {/* Quick Filters */}
             <div className="card">
-              <h3 className="font-semibold text-white mb-3">Filters</h3>
+              <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                <span>⚙️</span> Quick Filters
+              </h3>
 
               <div className="space-y-3">
                 <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-400">Channel</label>
-                  <select
-                    value={channelFilter}
-                    onChange={(e) => {
-                      setChannelFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 outline-none focus:border-violet-500"
-                  >
-                    <option value="">All channels</option>
-                    {channels.map((ch) => (
-                      <option key={ch} value={ch}>
-                        {ch}
-                      </option>
+                  <label className="mb-2 block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Status
+                  </label>
+                  <div className="space-y-2">
+                    {statuses.map((status) => (
+                      <button
+                        key={status}
+                        onClick={() => {
+                          setStatusFilter(statusFilter === status ? "" : status);
+                          setPage(1);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          statusFilter === status
+                            ? "bg-violet-600 text-white shadow-lg shadow-violet-500/20"
+                            : "bg-slate-800/50 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {status === "NEW" && "🆕"}
+                        {status === "REVIEWED" && "👀"}
+                        {status === "ACTIONED" && "✓"}
+                        {" " + status}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-xs font-medium text-slate-400">Status</label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => {
-                      setStatusFilter(e.target.value);
-                      setPage(1);
-                    }}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300 outline-none focus:border-violet-500"
-                  >
-                    <option value="">All statuses</option>
-                    {statuses.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
+                <div className="border-t border-slate-700/50 pt-3">
+                  <label className="mb-2 block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Sentiment
+                  </label>
+                  <div className="space-y-2">
+                    {sentiments.map((sentiment) => (
+                      <button
+                        key={sentiment}
+                        onClick={() => {
+                          setSentimentFilter(sentimentFilter === sentiment ? "" : sentiment);
+                          setPage(1);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          sentimentFilter === sentiment
+                            ? "bg-violet-600 text-white shadow-lg shadow-violet-500/20"
+                            : "bg-slate-800/50 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {sentiment === "POS" && "😊"}
+                        {sentiment === "NEU" && "😐"}
+                        {sentiment === "NEG" && "😞"}
+                        {" " + sentiment}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700/50 pt-3">
+                  <label className="mb-2 block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Channel
+                  </label>
+                  <div className="space-y-2">
+                    {channels.map((channel) => (
+                      <button
+                        key={channel}
+                        onClick={() => {
+                          setChannelFilter(channelFilter === channel ? "" : channel);
+                          setPage(1);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                          channelFilter === channel
+                            ? "bg-violet-600 text-white shadow-lg shadow-violet-500/20"
+                            : "bg-slate-800/50 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {channel}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {(isAdmin || isAnalyst) && (
-              <div className="card">
-                <h3 className="font-semibold text-white mb-3">Actions</h3>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full px-3 py-2 rounded-lg border border-violet-500/50 text-sm text-violet-300 hover:bg-violet-500/10 transition"
-                >
-                  ➕ Add feedback
-                </button>
-              </div>
-            )}
-
+            {/* Stats Card */}
             <div className="card">
-              <h3 className="font-semibold text-white mb-3">Stats</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Total items</span>
-                  <span className="font-semibold text-white">{total}</span>
+              <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                <span>📊</span> Summary
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Total Items</span>
+                  <Badge variant="info">{total}</Badge>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Page size</span>
-                  <span className="font-semibold text-white">{pageSize}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Page Size</span>
+                  <Badge variant="info">{pageSize}</Badge>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Current Page</span>
+                  <Badge variant="info">
+                    {page} of {totalPages || 1}
+                  </Badge>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Add Feedback Modal */}
+      <FeedbackFormModal
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        onSubmit={handleFormSubmit}
+        isLoading={isFormLoading}
+      />
     </main>
   );
 }
